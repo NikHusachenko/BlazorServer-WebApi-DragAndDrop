@@ -1,0 +1,22 @@
+﻿@page "/counter"
+@rendermode InteractiveServer
+
+<PageTitle>Counter</PageTitle>
+
+<h1>Counter</h1>
+
+<p role="status">Current count: @currentCount</p>
+
+<button class="btn btn-primary" @onclick="async () => await IncrementCount()">Click me</button>
+
+@code {
+    private HttpClient _httpClient = new HttpClient();
+    private string currentCount = string.Empty;
+
+    private async Task IncrementCount()
+    {
+        HttpResponseMessage response = await _httpClient.GetAsync("https://localhost:7060/Counter");
+        string stringContent = await response.Content.ReadAsStringAsync();
+        currentCount = stringContent;
+    }
+}

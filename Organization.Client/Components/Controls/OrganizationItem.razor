@@ -1,0 +1,123 @@
+﻿@rendermode InteractiveServer
+
+@using Organization.Client.Components.Pages
+@using Organization.Client.Models
+
+@inject IJSRuntime jsRuntime
+
+<ol>
+    @foreach (CompanyModel company in Organization.Companies.OrderBy(company => company.Index))
+    {
+        <li id="@company.Id" draggable="true" dropzone="move"
+            ondragover="event.preventDefault()"
+            @ondragend="() => OnDragEndHandler()"
+            @ondrop="() => OnTargetDropHandler(company)"
+            @ondragstart="() => OnDragStartHandler(company)">
+
+            <h5 ondragover="event.preventDefault()" dropzone="move" 
+                @ondrop="() => OnZoneDropHandler(company)">[@company.Id]@company.Name</h5>
+
+            <CascadingValue Value="this">
+                <CompanyItem Company="company" />
+            </CascadingValue>
+        </li>
+    }
+</ol>
+
+@code {
+    [CascadingParameter] public Viewer ParentComponent { get; set; }
+
+    [Parameter] public OrganizationModel Organization { get; set; }
+
+    private HttpClient _httpClient = new HttpClient();
+    private BusinessUnitModel _targetBusinessUnitToReplace = null;
+
+    public void SetReplaceTargetBusinessUnit(BusinessUnitModel model) => _targetBusinessUnitToReplace = model;
+    public void ResetReplaceTargetBusinessUnit() => _targetBusinessUnitToReplace = null;
+    public async void ReplaceTargetBusinessUnit(BusinessUnitModel model)
+    {
+        if (_targetBusinessUnitToReplace != null)
+        {
+            if (_targetBusinessUnitToReplace.Id == model.Id)
+            {
+                return;
+            }
+
+            ReplaceBusinessUnits(_targetBusinessUnitToReplace, model);
+
+            await NotifyAboutBusinessUnitChanged(_targetBusinessUnitToReplace);
+            await NotifyAboutBusinessUnitChanged(model);
+
+            _targetBusinessUnitToReplace = null;
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        foreach (CompanyModel company in Organization.Companies)
+        {
+            company.Organization = Organization;
+        }
+    }
+
+    private void OnDragStartHandler(CompanyModel model)
+    {
+        if (_targetBusinessUnitToReplace == null)
+        {
+            ParentComponent.SetReplaceTargetCompany(model);
+        }
+    }
+
+    private void ReplaceBusinessUnits(BusinessUnitModel target ,BusinessUnitModel draggable)
+    {
+        int temp = target.Index;
+        target.Index = draggable.Index;
+        draggable.Index = temp;
+
+        long t = target.CompanyFk;
+        target.CompanyFk = draggable.CompanyFk;
+        draggable.CompanyFk = t;
+
+        draggable.Company.BusinessUnits.Remove(draggable);
+        draggable.Company.BusinessUnits.Add(target);
+        draggable.Company.BusinessUnits = draggable.Company.BusinessUnits.OrderBy(bu => bu.Index).ToList();
+
+        target.Company.BusinessUnits.Remove(target);
+        target.Company.BusinessUnits.Add(draggable);
+        target.Company.BusinessUnits = target.Company.BusinessUnits.OrderBy(bu => bu.Index).ToList();
+    }
+
+    private async void OnZoneDropHandler(CompanyModel model)
+    {
+        if (_targetBusinessUnitToReplace != null)
+        {
+            _targetBusinessUnitToReplace.Company.BusinessUnits.Remove(_targetBusinessUnitToReplace);
+            _targetBusinessUnitToReplace.CompanyFk = model.Id;
+            _targetBusinessUnitToReplace.Index = model.BusinessUnits.Count;
+            model.BusinessUnits.Add(_targetBusinessUnitToReplace);
+
+            await NotifyAboutBusinessUnitChanged(_targetBusinessUnitToReplace); 
+
+            _targetBusinessUnitToReplace = null;
+        }
+    }
+
+    private async Task NotifyAboutBusinessUnitChanged(BusinessUnitModel model)
+    {
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("https://localhost:7060/api/businessunit/update", new
+        {
+            Id = model.Id,
+            Index = model.Index,
+            Name = model.Name,
+            CompanyFk = model.CompanyFk,
+        });
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // TODO
+        }
+    }
+
+    private void OnDragEndHandler() => ParentComponent.ResetReplacetargetCompany();
+    private async Task OnTargetDropHandler(CompanyModel model) => ParentComponent.ReplaceTargetCompany(model);
+}

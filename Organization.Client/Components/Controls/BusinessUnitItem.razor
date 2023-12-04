@@ -1,0 +1,11 @@
+﻿@using Organization.Client.Components.Pages
+@using Organization.Client.Models
+@rendermode InteractiveServer
+
+<h5>[@BusinessUnit.Id]@BusinessUnit.Name</h5>
+
+@code {
+    [CascadingParameter] public Viewer ParentComponent { get; set; }
+
+    [Parameter] public BusinessUnitModel BusinessUnit { get; set; }
+}

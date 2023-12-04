@@ -1,0 +1,34 @@
+﻿@using Organization.Client.Components.Pages
+@using Organization.Client.Models
+@rendermode InteractiveServer
+
+<ol>
+    
+    @foreach (BusinessUnitModel model in Company.BusinessUnits.OrderBy(bu => bu.Index))
+    {
+        <li draggable="true" dropzone="move" ondragover="event.preventDefault()"
+            @ondragstart="() => OnDragStartHandler(model)"
+            @ondrop="() => OnZoneDropHandler(model)"
+            @ondragend="() => OnDragEndHandler()">
+            <BusinessUnitItem BusinessUnit="model" />
+        </li>
+    }
+</ol>
+
+@code {
+    [CascadingParameter] public OrganizationItem ParentComponent { get; set; }
+
+    [Parameter] public CompanyModel Company { get; set; }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        foreach (BusinessUnitModel businessUnit in Company.BusinessUnits)
+        {
+            businessUnit.Company = Company;
+        }
+    }
+
+    private void OnDragStartHandler(BusinessUnitModel model) => ParentComponent.SetReplaceTargetBusinessUnit(model);
+    private void OnDragEndHandler() => ParentComponent.ResetReplaceTargetBusinessUnit();
+    private async Task OnZoneDropHandler(BusinessUnitModel model) => ParentComponent.ReplaceTargetBusinessUnit(model);
+}

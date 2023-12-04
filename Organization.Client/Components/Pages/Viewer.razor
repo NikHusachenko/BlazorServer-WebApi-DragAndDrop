@@ -1,0 +1,149 @@
+﻿@page "/viewer"
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.SignalR
+@using Microsoft.AspNetCore.SignalR.Client
+@using Newtonsoft.Json
+@using Organization.Client.Components.Controls
+@using Organization.Client.Models
+
+<div class="row">
+    @foreach (OrganizationModel organization in _organizations)
+    {
+        <div class="col-md">
+            <CascadingValue Value="this">
+                <h5 dropzone="move" ondragover="event.preventDefault()"
+                    @ondrop="() => OnZoneDropHandler(organization)">[@organization.Id]@organization.Name</h5>
+
+                <OrganizationItem Organization="organization" />
+            </CascadingValue>
+        </div>
+    }
+
+    <h4>@_chageNotify</h4>
+    <input type="button" class="btn btn-success d-none" value="Send value" @onclick="async () => await SendValue()" />
+</div>
+
+@code {
+    private string _chageNotify = string.Empty;
+
+    private HttpClient _httpClient = new HttpClient();
+    private OrganizationModel[] _organizations = new OrganizationModel[0];
+
+    private CompanyModel _targetCompany = null;
+
+    public void SetReplaceTargetCompany(CompanyModel company) => _targetCompany = company;
+
+    public void ResetReplacetargetCompany() => _targetCompany = null;
+
+    public async void ReplaceTargetCompany(CompanyModel model)
+    {
+        if (_targetCompany != null)
+        {
+            if (model.Id == _targetCompany.Id)
+            {
+                return;
+            }
+
+            ReplaceCompanies(_targetCompany, model);
+
+            await NotifyAboutCompanyChange(_targetCompany);
+            await NotifyAboutCompanyChange(model);
+
+            _targetCompany = null;
+        }
+    }
+
+    public async Task NotifyAboutCompanyChange(CompanyModel model)
+    {
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("https://localhost:7060/api/company/update", new
+        {
+            Id = model.Id,
+            Index = model.Index,
+            Name = model.Name,
+            OrganizationFk = model.OrganizationFk
+        });
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // TODO
+        }
+    }
+
+    private async void OnZoneDropHandler(OrganizationModel model)
+    {
+        if (_targetCompany != null)
+        {
+            _targetCompany.Organization.Companies.Remove(_targetCompany);
+            _targetCompany.OrganizationFk = model.Id;
+            _targetCompany.Index = model.Companies.Count;
+            model.Companies.Add(_targetCompany);
+
+            await NotifyAboutCompanyChange(_targetCompany);
+
+            _targetCompany = null;
+        }
+    }
+
+    private void ReplaceCompanies(CompanyModel target, CompanyModel draggable)
+    {
+        int temp = target.Index;
+        target.Index = draggable.Index;
+        draggable.Index = temp;
+
+        long t = target.OrganizationFk;
+        target.OrganizationFk = draggable.OrganizationFk;
+        draggable.OrganizationFk = t;
+
+        draggable.Organization.Companies.Remove(draggable);
+        draggable.Organization.Companies.Add(_targetCompany);
+        draggable.Organization.Companies = draggable.Organization.Companies.OrderBy(company => company.Index).ToList();
+
+        target.Organization.Companies.Remove(target);
+        target.Organization.Companies.Add(draggable);
+        target.Organization.Companies = target.Organization.Companies.OrderBy(company => company.Index).ToList();
+    }
+
+    protected async override Task OnInitializedAsync()
+    {
+        HttpResponseMessage response = await _httpClient.GetAsync("https://localhost:7060/Organizations");
+        if (response.IsSuccessStatusCode)
+        {
+            string jsonMessage = await response.Content.ReadAsStringAsync();
+            _organizations = JsonConvert.DeserializeObject<OrganizationModel[]>(jsonMessage, new JsonSerializerSettings()
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+            });
+        }
+        
+        HubConnection hubConnection = new HubConnectionBuilder()
+            .WithUrl("https://localhost:7060/setvalue")
+            .Build();
+
+        await hubConnection.StartAsync();
+        hubConnection.On<PostModel>("UpdateValue", async (newObject) =>
+        {
+            _chageNotify = newObject.NumberValue.ToString();
+            await InvokeAsync(StateHasChanged);
+        });
+
+        StateHasChanged();
+    }
+
+    private async Task SendValue()
+    {
+        var response = await _httpClient.PostAsJsonAsync<PostModel>("https://localhost:7060/setvalue", new PostModel()
+        {
+            NumberValue = 123,
+            StringValue = "Hello world"
+        });
+
+        var data = await response.Content.ReadAsStringAsync();
+    }
+
+    private class PostModel
+    {
+        public string StringValue { get; set; }
+        public int NumberValue { get; set; }
+    }
+}
