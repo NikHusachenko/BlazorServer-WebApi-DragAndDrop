@@ -2,6 +2,7 @@
 
 @using Organization.Client.Components.Pages
 @using Organization.Client.Models
+@using System.Collections
 
 @inject IJSRuntime jsRuntime
 
@@ -15,7 +16,8 @@
             @ondragstart="() => OnDragStartHandler(company)">
 
             <h5 ondragover="event.preventDefault()" dropzone="move" 
-                @ondrop="() => OnZoneDropHandler(company)">[@company.Id]@company.Name</h5>
+                @ondrop="() => OnZoneDropHandler(company)"
+                >[@company.Id]@company.Name</h5>
 
             <CascadingValue Value="this">
                 <CompanyItem Company="company" />
@@ -25,16 +27,18 @@
 </ol>
 
 @code {
-    [CascadingParameter] public Viewer ParentComponent { get; set; }
-
-    [Parameter] public OrganizationModel Organization { get; set; }
-
     private HttpClient _httpClient = new HttpClient();
     private BusinessUnitModel _targetBusinessUnitToReplace = null;
+    private List<BusinessUnitModel> _multipleDraggableBusinessUnits = new List<BusinessUnitModel>();
+
+    [CascadingParameter] public Viewer ParentComponent { get; set; }
+    [Parameter] public OrganizationModel Organization { get; set; }
 
     public void SetReplaceTargetBusinessUnit(BusinessUnitModel model) => _targetBusinessUnitToReplace = model;
+
     public void ResetReplaceTargetBusinessUnit() => _targetBusinessUnitToReplace = null;
-    public async void ReplaceTargetBusinessUnit(BusinessUnitModel model)
+
+    public async Task ReplaceTargetBusinessUnit(BusinessUnitModel model)
     {
         if (_targetBusinessUnitToReplace != null)
         {
@@ -52,11 +56,35 @@
         }
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    public void SelectMultipleraggableBusinessUnit(BusinessUnitModel model)
+    {
+        if ((_multipleDraggableBusinessUnits.Count == 0) ||
+            (model.CompanyFk == _multipleDraggableBusinessUnits.First().CompanyFk))
+        {
+            _multipleDraggableBusinessUnits.Add(model);
+
+            model.IsSelected = true;
+            return;
+        }
+
+        model.IsSelected = false;
+        return;
+    }
+
+    public void RemoveFromMultipleraggableBusinessUnit(BusinessUnitModel model)
+    {
+        if (_multipleDraggableBusinessUnits.Contains(model))
+        {
+            _multipleDraggableBusinessUnits.Remove(model);
+            model.IsSelected = false;
+        }
+    }
+
+    protected override void OnInitialized()
     {
         foreach (CompanyModel company in Organization.Companies)
         {
-            company.Organization = Organization;
+            company.Organization = Organization;            
         }
     }
 
@@ -68,7 +96,7 @@
         }
     }
 
-    private void ReplaceBusinessUnits(BusinessUnitModel target ,BusinessUnitModel draggable)
+    private void ReplaceBusinessUnits(BusinessUnitModel target, BusinessUnitModel draggable)
     {
         int temp = target.Index;
         target.Index = draggable.Index;
@@ -85,26 +113,86 @@
         target.Company.BusinessUnits.Remove(target);
         target.Company.BusinessUnits.Add(draggable);
         target.Company.BusinessUnits = target.Company.BusinessUnits.OrderBy(bu => bu.Index).ToList();
+
+        CompanyModel tempCompany = target.Company;
+        target.Company = draggable.Company;
+        draggable.Company = tempCompany;
     }
 
     private async void OnZoneDropHandler(CompanyModel model)
     {
         if (_targetBusinessUnitToReplace != null)
         {
-            _targetBusinessUnitToReplace.Company.BusinessUnits.Remove(_targetBusinessUnitToReplace);
-            _targetBusinessUnitToReplace.CompanyFk = model.Id;
-            _targetBusinessUnitToReplace.Index = model.BusinessUnits.Count;
-            model.BusinessUnits.Add(_targetBusinessUnitToReplace);
+            if (_multipleDraggableBusinessUnits.Contains(_targetBusinessUnitToReplace))
+            {
+                DragMultiple(model);
+            }
+            else
+            {
+                await DragOnlyOne(model);
+            }
+        }
+    }
 
-            await NotifyAboutBusinessUnitChanged(_targetBusinessUnitToReplace); 
+    private async Task DragOnlyOne(CompanyModel model)
+    {
+        _targetBusinessUnitToReplace.Company.BusinessUnits.Remove(_targetBusinessUnitToReplace);
+        _targetBusinessUnitToReplace.Company = model;
+        _targetBusinessUnitToReplace.CompanyFk = model.Id;
+        _targetBusinessUnitToReplace.Index = model.BusinessUnits.Count;
+        model.BusinessUnits.Add(_targetBusinessUnitToReplace);
 
-            _targetBusinessUnitToReplace = null;
+        await NotifyAboutBusinessUnitChanged(_targetBusinessUnitToReplace);
+
+        _targetBusinessUnitToReplace = null;
+    }
+
+    private async void DragMultiple(CompanyModel model)
+    {
+        if (model.Id == _multipleDraggableBusinessUnits.First().CompanyFk)
+        {
+            return;
+        }
+
+        foreach (BusinessUnitModel bu in _multipleDraggableBusinessUnits)
+        {
+            bu.Company.BusinessUnits.Remove(bu);
+            bu.CompanyFk = model.Id;
+            bu.Company = model;
+            bu.Index = model.BusinessUnits.Count;
+            model.BusinessUnits.Add(bu);
+        }
+
+        UnselectAllBusinessUnits(_multipleDraggableBusinessUnits);
+
+        await SyncIndexes(model);
+        await SyncIndexes(_multipleDraggableBusinessUnits.First().Company);
+
+        _multipleDraggableBusinessUnits.Clear();
+        _targetBusinessUnitToReplace = null;
+    }
+
+    private async Task SyncIndexes(CompanyModel company)
+    {
+        for (int i = company.BusinessUnits.Count - 1; i >= 0; i--)
+        {
+            company.BusinessUnits[i].Index = i;
+        }
+
+        await NotifyAboutBusinessUnitChangedMultiple(company.BusinessUnits);
+    }
+
+    private void UnselectAllBusinessUnits(List<BusinessUnitModel> units)
+    {
+        foreach (BusinessUnitModel unit in units)
+        {
+            unit.IsSelected = false;
         }
     }
 
     private async Task NotifyAboutBusinessUnitChanged(BusinessUnitModel model)
     {
-        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("https://localhost:7060/api/businessunit/update", new
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("https://localhost:7060/api/businessunit/update", new UpdateBusinessUnitModel()
         {
             Id = model.Id,
             Index = model.Index,
@@ -118,6 +206,36 @@
         }
     }
 
+    private async Task NotifyAboutBusinessUnitChangedMultiple(List<BusinessUnitModel> models)
+    {
+        var vm = new { BusinessUnits = new List<UpdateBusinessUnitModel>() };
+        foreach (BusinessUnitModel model in models)
+        {
+            vm.BusinessUnits.Add(new UpdateBusinessUnitModel()
+            {
+                Id = model.Id,
+                CompanyFk = model.CompanyFk,
+                Index = model.Index,
+                Name = model.Name,
+            });
+        }
+
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("https://localhost:7060/api/businessunit/UpdateMany", vm);
+        if (!response.IsSuccessStatusCode)
+        {
+            // TODO
+        }
+    }
+
     private void OnDragEndHandler() => ParentComponent.ResetReplacetargetCompany();
-    private async Task OnTargetDropHandler(CompanyModel model) => ParentComponent.ReplaceTargetCompany(model);
+
+    private void OnTargetDropHandler(CompanyModel model) => ParentComponent.ReplaceTargetCompany(model);
+
+    private class UpdateBusinessUnitModel
+    {
+        public long Id { get; set; }
+        public int Index { get; set; }
+        public string Name { get; set; }
+        public long CompanyFk { get; set; }
+    }
 }

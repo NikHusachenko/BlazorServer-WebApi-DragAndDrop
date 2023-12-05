@@ -66,6 +66,11 @@ namespace Organization.DataAccess.Repositories
                 company.Organization = organization;
 
                 BusinessUnitEntity businessUnit = company.BusinessUnits.Find(bu => bu.Id == bunit.Id);
+                if (bunit == null)
+                {
+                    return organization;
+                }
+
                 if (businessUnit == null)
                 {
                     company.BusinessUnits.Add(bunit);

@@ -29,6 +29,19 @@ namespace Organization.Services.BusinessUnitServices
             return await Update(dbRecord);
         }
 
+        public async Task<ResponseService> UpdateMany(UpdateManyBusinessUnitHttpPostModel vm)
+        {
+            foreach (var model in vm.BusinessUnits)
+            {
+                var response = await Update(model);
+                if (response.IsError)
+                {
+                    return response;
+                }
+            }
+            return ResponseService.Ok();
+        }
+
         private async Task<ResponseService> Update(BusinessUnitEntity entity)
         {
             try

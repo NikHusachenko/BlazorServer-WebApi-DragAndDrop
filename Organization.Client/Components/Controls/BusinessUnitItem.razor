@@ -2,10 +2,22 @@
 @using Organization.Client.Models
 @rendermode InteractiveServer
 
-<h5>[@BusinessUnit.Id]@BusinessUnit.Name</h5>
+<h5 style="@(BusinessUnit.IsSelected ? "border: 1px solid gray; border-radius: 5px; background: #dedede" : "")" @onclick="() => OnClickHandler(BusinessUnit)">[@BusinessUnit.Id]@BusinessUnit.Name</h5>
 
 @code {
-    [CascadingParameter] public Viewer ParentComponent { get; set; }
+    [CascadingParameter] public OrganizationItem ParentComponent { get; set; }
 
     [Parameter] public BusinessUnitModel BusinessUnit { get; set; }
+
+    private void OnClickHandler(BusinessUnitModel model)
+    {
+        if (!BusinessUnit.IsSelected)
+        {
+            ParentComponent.SelectMultipleraggableBusinessUnit(model);
+        }
+        else
+        {
+            ParentComponent.RemoveFromMultipleraggableBusinessUnit(model);
+        }
+    }
 }

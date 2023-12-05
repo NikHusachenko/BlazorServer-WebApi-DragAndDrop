@@ -26,5 +26,17 @@ namespace Organization.API.Controllers
             }
             return Ok(new { success = true });
         }
+
+        [HttpPost]
+        [Route("[action]")]
+        public async Task<IActionResult> UpdateMany([FromBody]UpdateManyBusinessUnitHttpPostModel vm)
+        {
+            var response = await _usinessUntiService.UpdateMany(vm);
+            if (response.IsError)
+            {
+                return BadRequest(new { responseMessage = response.ErrorMessage });
+            }
+            return Ok(new { success = true });
+        }
     }
 }

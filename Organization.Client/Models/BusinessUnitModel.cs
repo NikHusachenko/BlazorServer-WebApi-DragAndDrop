@@ -6,6 +6,8 @@ namespace Organization.Client.Models
     {
         [JsonProperty("id")] public long Id { get; set; }
 
+        [JsonIgnore] public bool IsSelected { get; set; }
+
         [JsonProperty("index")] public int Index { get; set; }
 
         [JsonProperty("name")] public string Name { get; set; } = string.Empty;

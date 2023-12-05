@@ -13,20 +13,15 @@
         <div class="col-md">
             <CascadingValue Value="this">
                 <h5 dropzone="move" ondragover="event.preventDefault()"
-                    @ondrop="() => OnZoneDropHandler(organization)">[@organization.Id]@organization.Name</h5>
+                    @ondrop="async () => await OnZoneDropHandler(organization)">[@organization.Id]@organization.Name</h5>
 
                 <OrganizationItem Organization="organization" />
             </CascadingValue>
         </div>
     }
-
-    <h4>@_chageNotify</h4>
-    <input type="button" class="btn btn-success d-none" value="Send value" @onclick="async () => await SendValue()" />
 </div>
 
 @code {
-    private string _chageNotify = string.Empty;
-
     private HttpClient _httpClient = new HttpClient();
     private OrganizationModel[] _organizations = new OrganizationModel[0];
 
@@ -36,7 +31,7 @@
 
     public void ResetReplacetargetCompany() => _targetCompany = null;
 
-    public async void ReplaceTargetCompany(CompanyModel model)
+    public async Task ReplaceTargetCompany(CompanyModel model)
     {
         if (_targetCompany != null)
         {
@@ -47,11 +42,34 @@
 
             ReplaceCompanies(_targetCompany, model);
 
-            await NotifyAboutCompanyChange(_targetCompany);
-            await NotifyAboutCompanyChange(model);
+            await SyncIndexes(_targetCompany.Organization);
+            await SyncIndexes(model.Organization);
 
             _targetCompany = null;
         }
+    }
+
+    private void ReplaceCompanies(CompanyModel target, CompanyModel draggable)
+    {
+        int temp = target.Index;
+        target.Index = draggable.Index;
+        draggable.Index = temp;
+
+        long t = target.OrganizationFk;
+        target.OrganizationFk = draggable.OrganizationFk;
+        draggable.OrganizationFk = t;
+
+        draggable.Organization.Companies.Remove(draggable);
+        draggable.Organization.Companies.Add(target);
+        draggable.Organization.Companies = draggable.Organization.Companies.OrderBy(company => company.Index).ToList();
+
+        target.Organization.Companies.Remove(target);
+        target.Organization.Companies.Add(draggable);
+        target.Organization.Companies = target.Organization.Companies.OrderBy(company => company.Index).ToList();
+
+        OrganizationModel tempOrganization = target.Organization;
+        target.Organization = draggable.Organization;
+        draggable.Organization = tempOrganization;
     }
 
     public async Task NotifyAboutCompanyChange(CompanyModel model)
@@ -70,38 +88,59 @@
         }
     }
 
-    private async void OnZoneDropHandler(OrganizationModel model)
+    public async Task NotifyAboutCompanyChangeMany(List<CompanyModel> models)
+    {
+        var vm = new { Companies = new List<CompanyPostModel>() };
+        foreach (CompanyModel model in models)
+        {
+            vm.Companies.Add(new CompanyPostModel()
+            {
+                Id = model.Id,
+                Index = model.Index,
+                Name = model.Name,
+                OrganizationFk = model.OrganizationFk,
+            });
+        }
+
+        HttpResponseMessage response = await _httpClient.PostAsJsonAsync("https://localhost:7060/api/company/updatemany", vm);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // TODO
+        }
+    }
+
+    private async Task OnZoneDropHandler(OrganizationModel model)
     {
         if (_targetCompany != null)
         {
-            _targetCompany.Organization.Companies.Remove(_targetCompany);
-            _targetCompany.OrganizationFk = model.Id;
-            _targetCompany.Index = model.Companies.Count;
-            model.Companies.Add(_targetCompany);
+            if (model.Id == _targetCompany.OrganizationFk)
+            {
+                _targetCompany.Index = _targetCompany.Organization.Companies.Max(comp => comp.Index) + 1;
+            }
+            else
+            {
+                _targetCompany.Organization.Companies.Remove(_targetCompany);
+                _targetCompany.OrganizationFk = model.Id;
+                _targetCompany.Organization = model;
+                _targetCompany.Index = model.Companies.Count == 0 ? 0 : model.Companies.Max(comp => comp.Index) + 1;
+                model.Companies.Add(_targetCompany);
+            }
 
-            await NotifyAboutCompanyChange(_targetCompany);
+            await SyncIndexes(model);
 
             _targetCompany = null;
         }
     }
 
-    private void ReplaceCompanies(CompanyModel target, CompanyModel draggable)
+    private async Task SyncIndexes(OrganizationModel organization)
     {
-        int temp = target.Index;
-        target.Index = draggable.Index;
-        draggable.Index = temp;
-
-        long t = target.OrganizationFk;
-        target.OrganizationFk = draggable.OrganizationFk;
-        draggable.OrganizationFk = t;
-
-        draggable.Organization.Companies.Remove(draggable);
-        draggable.Organization.Companies.Add(_targetCompany);
-        draggable.Organization.Companies = draggable.Organization.Companies.OrderBy(company => company.Index).ToList();
-
-        target.Organization.Companies.Remove(target);
-        target.Organization.Companies.Add(draggable);
-        target.Organization.Companies = target.Organization.Companies.OrderBy(company => company.Index).ToList();
+        organization.Companies = organization.Companies.OrderBy(comp => comp.Index).ToList();
+        for (int i = organization.Companies.Count - 1; i >= 0; i--)
+        {
+            organization.Companies[i].Index = i;
+        }
+        await NotifyAboutCompanyChangeMany(organization.Companies);
     }
 
     protected async override Task OnInitializedAsync()
@@ -115,35 +154,26 @@
                 ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
             });
         }
-        
-        HubConnection hubConnection = new HubConnectionBuilder()
-            .WithUrl("https://localhost:7060/setvalue")
-            .Build();
 
-        await hubConnection.StartAsync();
-        hubConnection.On<PostModel>("UpdateValue", async (newObject) =>
-        {
-            _chageNotify = newObject.NumberValue.ToString();
-            await InvokeAsync(StateHasChanged);
-        });
+        // HubConnection hubConnection = new HubConnectionBuilder()
+        //     .WithUrl("https://localhost:7060/setvalue")
+        //     .Build();
 
-        StateHasChanged();
+        // await hubConnection.StartAsync();
+        // hubConnection.On<PostModel>("UpdateValue", async (newObject) =>
+        // {
+        //     _chageNotify = newObject.NumberValue.ToString();
+        //     await InvokeAsync(StateHasChanged);
+        // });
+
+        // StateHasChanged();
     }
 
-    private async Task SendValue()
+    private class CompanyPostModel
     {
-        var response = await _httpClient.PostAsJsonAsync<PostModel>("https://localhost:7060/setvalue", new PostModel()
-        {
-            NumberValue = 123,
-            StringValue = "Hello world"
-        });
-
-        var data = await response.Content.ReadAsStringAsync();
-    }
-
-    private class PostModel
-    {
-        public string StringValue { get; set; }
-        public int NumberValue { get; set; }
+        public long Id { get; set; }
+        public int Index { get; set; }
+        public string Name { get; set; }
+        public long OrganizationFk { get; set; }
     }
 }

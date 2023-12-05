@@ -20,15 +20,17 @@
 
     [Parameter] public CompanyModel Company { get; set; }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override void OnInitialized()
     {
-        foreach (BusinessUnitModel businessUnit in Company.BusinessUnits)
+        foreach (BusinessUnitModel model in Company.BusinessUnits)
         {
-            businessUnit.Company = Company;
+            model.Company = Company;
         }
     }
 
     private void OnDragStartHandler(BusinessUnitModel model) => ParentComponent.SetReplaceTargetBusinessUnit(model);
+
     private void OnDragEndHandler() => ParentComponent.ResetReplaceTargetBusinessUnit();
-    private async Task OnZoneDropHandler(BusinessUnitModel model) => ParentComponent.ReplaceTargetBusinessUnit(model);
+
+    private async Task OnZoneDropHandler(BusinessUnitModel model) => await ParentComponent.ReplaceTargetBusinessUnit(model);
 }
